@@ -13,13 +13,9 @@ RUN apt-get update \
 
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir \
-    torch \
-    --index-url https://download.pytorch.org/whl/cpu
+RUN python -m pip install --upgrade pip
 
-RUN pip install \
-    --no-cache-dir \
-    -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
