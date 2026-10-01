@@ -16,4 +16,4 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV STREAMLIT_SERVER_HEADLESS=true
 
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port 8000 & streamlit run playground/app.py --server.address 0.0.0.0 --server.port ${PORT:-10000} --server.headless true"]
+CMD ["sh", "-c", "streamlit run playground/app.py --server.address=0.0.0.0 --server.port=${PORT:-10000} --server.headless=true"]
