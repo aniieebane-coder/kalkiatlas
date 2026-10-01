@@ -1,24 +1,23 @@
 import streamlit as st
-import torch
-from sentence_transformers import SentenceTransformer, util
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 st.set_page_config(page_title="KalkiAtlas Console", layout="wide")
 st.title("⚡ KALKIATLAS | Enterprise AI Console")
-st.caption("Sovereign Multilingual Embeddings & High-Precision Context Reranking Engine")
+st.caption("Sovereign Multilingual Embeddings & Context Precision Reranking Engine")
 
-# Cache model so it loads into memory once (~80MB RAM footprint)
+# Cache the lightweight model in RAM
 @st.cache_resource
 def load_engine():
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    return model
+    # Ultra-lightweight 22MB model for maximum speed on Free CPU
+    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-try:
-    model = load_engine()
-    st.sidebar.success("KalkiAtlas Engine: ACTIVE")
-    st.sidebar.info("Deployment: Render Cloud (24/7)")
-    st.sidebar.caption("DPDP Act 2023 Compliant")
-except Exception as e:
-    st.sidebar.error(f"Initialization Error: {e}")
+model = load_engine()
+
+st.sidebar.header("KalkiAtlas Engine Status")
+st.sidebar.success("Status: LIVE (24/7 Cloud Node)")
+st.sidebar.warning("Demo Tier: CPU Instance (~1.2s)")
+st.sidebar.info("Enterprise VPC Tier: NVIDIA GPU (<20ms)")
 
 tab1, tab2 = st.tabs(["🎯 KalkiRerank (Context Accuracy)", "🔍 KalkiEmbed (Vector Generation)"])
 
@@ -31,11 +30,12 @@ with tab1:
     if st.button("Execute KalkiRerank"):
         doc_list = [d.strip() for d in docs.split("\n") if d.strip()]
         
-        # Direct Python Inference (No HTTP connections -> Fixes Connection Error!)
-        query_emb = model.encode(query, convert_to_tensor=True)
-        doc_embs = model.encode(doc_list, convert_to_tensor=True)
+        # Fast NumPy Cosine Similarity
+        q_emb = model.encode(query, normalize_embeddings=True)
+        d_embs = model.encode(doc_list, normalize_embeddings=True)
         
-        scores = util.cos_sim(query_emb, doc_embs)[0].cpu().tolist()
+        # Matrix multiplication for speed
+        scores = np.dot(d_embs, q_emb).tolist()
         
         results = [{"index": idx, "document": doc, "relevance_score": float(round(score, 4))} for idx, (doc, score) in enumerate(zip(doc_list, scores))]
         results.sort(key=lambda x: x["relevance_score"], reverse=True)
@@ -48,7 +48,7 @@ with tab2:
     text = st.text_area("Input Text Sequence:", "Aadhaar authentication and PAN card linking status")
     
     if st.button("Generate Kalki Embeddings"):
-        vector = model.encode(text).tolist()
+        vector = model.encode(text, normalize_embeddings=True).tolist()
         st.success("Embeddings Generated!")
         st.write("Vector Dimension Size:", len(vector))
         st.write("First 10 Dimensions Sample:", vector[:10])
