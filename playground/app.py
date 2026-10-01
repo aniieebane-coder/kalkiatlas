@@ -1,10 +1,10 @@
 import streamlit as st
 import numpy as np
+import onnxruntime as ort
 
+from huggingface_hub import hf_hub_download
+from tokenizers import Tokenizer
 
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
 
 st.set_page_config(
     page_title="KalkiAtlas Console",
@@ -19,35 +19,154 @@ st.caption(
 
 
 # ============================================================
-# MODEL LOADER
+# MODEL CONFIGURATION
+# ============================================================
+
+MODEL_REPO = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+# ============================================================
+# LOAD ONNX ENGINE
 # ============================================================
 
 @st.cache_resource(show_spinner=False)
 def load_engine():
 
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer(
-        "sentence-transformers/all-MiniLM-L6-v2",
-        device="cpu"
+    # Download tokenizer
+    tokenizer_path = hf_hub_download(
+        repo_id=MODEL_REPO,
+        filename="tokenizer.json"
     )
 
-    return model
+    # Download ONNX model
+    model_path = hf_hub_download(
+        repo_id=MODEL_REPO,
+        filename="onnx/model.onnx"
+    )
+
+    tokenizer = Tokenizer.from_file(
+        tokenizer_path
+    )
+
+    tokenizer.enable_truncation(
+        max_length=256
+    )
+
+    tokenizer.enable_padding(
+        length=256,
+        pad_id=0,
+        pad_token="[PAD]"
+    )
+
+    session_options = ort.SessionOptions()
+
+    session_options.intra_op_num_threads = 1
+    session_options.inter_op_num_threads = 1
+
+    session = ort.InferenceSession(
+        model_path,
+        sess_options=session_options,
+        providers=["CPUExecutionProvider"]
+    )
+
+    return tokenizer, session
 
 
-def get_model():
+# ============================================================
+# EMBEDDING FUNCTION
+# ============================================================
 
-    with st.spinner("Loading AI engine..."):
-        model = load_engine()
+def encode_texts(texts):
 
-    return model
+    tokenizer, session = load_engine()
+
+    if isinstance(texts, str):
+        texts = [texts]
+
+    encoded = tokenizer.encode_batch(texts)
+
+    input_ids = np.array(
+        [item.ids for item in encoded],
+        dtype=np.int64
+    )
+
+    attention_mask = np.array(
+        [item.attention_mask for item in encoded],
+        dtype=np.int64
+    )
+
+    token_type_ids = np.zeros_like(
+        input_ids,
+        dtype=np.int64
+    )
+
+    # Determine what inputs the ONNX model expects
+    model_inputs = {
+        item.name
+        for item in session.get_inputs()
+    }
+
+    inputs = {}
+
+    if "input_ids" in model_inputs:
+        inputs["input_ids"] = input_ids
+
+    if "attention_mask" in model_inputs:
+        inputs["attention_mask"] = attention_mask
+
+    if "token_type_ids" in model_inputs:
+        inputs["token_type_ids"] = token_type_ids
+
+    outputs = session.run(
+        None,
+        inputs
+    )
+
+    token_embeddings = outputs[0]
+
+    # Mean pooling
+    mask = attention_mask[..., None].astype(
+        np.float32
+    )
+
+    summed = np.sum(
+        token_embeddings * mask,
+        axis=1
+    )
+
+    counts = np.clip(
+        mask.sum(axis=1),
+        1e-9,
+        None
+    )
+
+    embeddings = summed / counts
+
+    # L2 normalization
+    norms = np.linalg.norm(
+        embeddings,
+        axis=1,
+        keepdims=True
+    )
+
+    embeddings = embeddings / np.clip(
+        norms,
+        1e-12,
+        None
+    )
+
+    return embeddings.astype(
+        np.float32
+    )
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.header("KalkiAtlas Engine Status")
+st.sidebar.header(
+    "KalkiAtlas Engine Status"
+)
 
 st.sidebar.success(
     "Status: LIVE"
@@ -55,6 +174,10 @@ st.sidebar.success(
 
 st.sidebar.info(
     "Compute: CPU"
+)
+
+st.sidebar.info(
+    "Runtime: ONNX"
 )
 
 st.sidebar.info(
@@ -75,8 +198,7 @@ tab1, tab2 = st.tabs(
 
 
 # ============================================================
-# TAB 1
-# KALKI RERANK
+# TAB 1 - RERANK
 # ============================================================
 
 with tab1:
@@ -99,23 +221,22 @@ with tab1:
     )
 
     if st.button(
-        "Execute KalkiRerank",
-        key="rerank_button"
+        "Execute KalkiRerank"
     ):
 
-        doc_list = [
-            document.strip()
-            for document in docs.split("\n")
-            if document.strip()
+        documents = [
+            line.strip()
+            for line in docs.split("\n")
+            if line.strip()
         ]
 
         if not query.strip():
 
             st.warning(
-                "Please enter a search query."
+                "Please enter a query."
             )
 
-        elif not doc_list:
+        elif not documents:
 
             st.warning(
                 "Please enter at least one document."
@@ -125,117 +246,56 @@ with tab1:
 
             try:
 
-                # -----------------------------------------
-                # STEP 1
-                # -----------------------------------------
-
-                st.info(
-                    "Step 1: Starting model load..."
-                )
-
-                model = get_model()
-
-
-                # -----------------------------------------
-                # STEP 2
-                # -----------------------------------------
-
-                st.success(
-                    "Step 2: Model loaded successfully!"
-                )
-
-
-                # -----------------------------------------
-                # STEP 3
-                # -----------------------------------------
-
-                st.info(
-                    "Step 3: Encoding query..."
-                )
-
-                q_emb = model.encode(
-                    query,
-                    normalize_embeddings=True
-                )
-
-
-                # -----------------------------------------
-                # STEP 4
-                # -----------------------------------------
-
-                st.success(
-                    "Step 4: Query encoded!"
-                )
-
-
-                # -----------------------------------------
-                # STEP 5
-                # -----------------------------------------
-
-                st.info(
-                    "Step 5: Encoding documents..."
-                )
-
-                d_embs = model.encode(
-                    doc_list,
-                    normalize_embeddings=True
-                )
-
-
-                # -----------------------------------------
-                # STEP 6
-                # -----------------------------------------
-
-                st.success(
-                    "Step 6: Documents encoded!"
-                )
-
-
-                # -----------------------------------------
-                # CALCULATE SIMILARITY
-                # -----------------------------------------
-
-                scores = np.dot(
-                    d_embs,
-                    q_emb
-                ).tolist()
-
-
-                # -----------------------------------------
-                # BUILD RESULTS
-                # -----------------------------------------
-
-                results = []
-
-                for idx, (document, score) in enumerate(
-                    zip(doc_list, scores)
+                with st.spinner(
+                    "Running KalkiRerank..."
                 ):
 
-                    results.append(
-                        {
-                            "rank_source_index": idx,
-                            "document": document,
-                            "relevance_score": float(
-                                round(score, 4)
-                            )
-                        }
+                    # Encode query and docs together
+                    all_text = [
+                        query
+                    ] + documents
+
+                    embeddings = encode_texts(
+                        all_text
                     )
 
+                    query_embedding = embeddings[0]
 
-                # -----------------------------------------
-                # SORT RESULTS
-                # -----------------------------------------
+                    document_embeddings = embeddings[1:]
 
-                results.sort(
-                    key=lambda item:
-                    item["relevance_score"],
-                    reverse=True
-                )
+                    scores = np.dot(
+                        document_embeddings,
+                        query_embedding
+                    )
 
+                    results = []
 
-                # -----------------------------------------
-                # DISPLAY RESULTS
-                # -----------------------------------------
+                    for index, (
+                        document,
+                        score
+                    ) in enumerate(
+                        zip(
+                            documents,
+                            scores
+                        )
+                    ):
+
+                        results.append(
+                            {
+                                "document": document,
+                                "relevance_score": round(
+                                    float(score),
+                                    4
+                                ),
+                                "source_index": index
+                            }
+                        )
+
+                    results.sort(
+                        key=lambda item:
+                        item["relevance_score"],
+                        reverse=True
+                    )
 
                 st.success(
                     "✅ Re-ranking Complete!"
@@ -245,11 +305,10 @@ with tab1:
                     results
                 )
 
-
             except Exception as error:
 
                 st.error(
-                    "❌ KalkiRerank failed."
+                    "KalkiRerank failed."
                 )
 
                 st.exception(
@@ -258,8 +317,7 @@ with tab1:
 
 
 # ============================================================
-# TAB 2
-# KALKI EMBEDDINGS
+# TAB 2 - EMBEDDINGS
 # ============================================================
 
 with tab2:
@@ -270,62 +328,30 @@ with tab2:
 
     text = st.text_area(
         "Input Text Sequence:",
-        "Aadhaar authentication and PAN card linking status",
-        key="embedding_text"
+        "Aadhaar authentication and PAN card linking status"
     )
 
     if st.button(
-        "Generate Kalki Embeddings",
-        key="embedding_button"
+        "Generate Kalki Embeddings"
     ):
 
         if not text.strip():
 
             st.warning(
-                "Please enter some text."
+                "Please enter text."
             )
 
         else:
 
             try:
 
-                # -----------------------------------------
-                # STEP 1
-                # -----------------------------------------
+                with st.spinner(
+                    "Generating embedding..."
+                ):
 
-                st.info(
-                    "Step 1: Starting model load..."
-                )
-
-                model = get_model()
-
-
-                # -----------------------------------------
-                # STEP 2
-                # -----------------------------------------
-
-                st.success(
-                    "Step 2: Model loaded successfully!"
-                )
-
-
-                # -----------------------------------------
-                # STEP 3
-                # -----------------------------------------
-
-                st.info(
-                    "Step 3: Generating embedding..."
-                )
-
-                vector = model.encode(
-                    text,
-                    normalize_embeddings=True
-                ).tolist()
-
-
-                # -----------------------------------------
-                # RESULTS
-                # -----------------------------------------
+                    vector = encode_texts(
+                        text
+                    )[0]
 
                 st.success(
                     "✅ Embedding Generated!"
@@ -337,15 +363,17 @@ with tab2:
                 )
 
                 st.write(
-                    "First 10 Dimensions:",
-                    vector[:10]
+                    "First 10 Dimensions:"
                 )
 
+                st.write(
+                    vector[:10].tolist()
+                )
 
             except Exception as error:
 
                 st.error(
-                    "❌ Embedding generation failed."
+                    "Embedding generation failed."
                 )
 
                 st.exception(
