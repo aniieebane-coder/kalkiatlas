@@ -6,16 +6,13 @@ ENV PYTHONUNBUFFERED=1
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV TOKENIZERS_PARALLELISM=false
 ENV OMP_NUM_THREADS=1
-
-RUN apt-get update \
-    && apt-get install -y git \
-    && rm -rf /var/lib/apt/lists/*
+ENV OPENBLAS_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
 
 COPY requirements.txt .
 
-RUN python -m pip install --upgrade pip
-
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
