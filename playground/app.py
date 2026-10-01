@@ -6,8 +6,13 @@ from huggingface_hub import hf_hub_download
 from tokenizers import Tokenizer
 
 
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
 st.set_page_config(
     page_title="KalkiAtlas Console",
+    page_icon="⚡",
     layout="wide"
 )
 
@@ -19,34 +24,26 @@ st.caption(
 
 
 # ============================================================
-# MODEL CONFIGURATION
+# MODEL
 # ============================================================
 
 MODEL_REPO = "sentence-transformers/all-MiniLM-L6-v2"
 
 
-# ============================================================
-# LOAD ONNX ENGINE
-# ============================================================
-
 @st.cache_resource(show_spinner=False)
 def load_engine():
 
-    # Download tokenizer
     tokenizer_path = hf_hub_download(
         repo_id=MODEL_REPO,
         filename="tokenizer.json"
     )
 
-    # Download ONNX model
     model_path = hf_hub_download(
         repo_id=MODEL_REPO,
         filename="onnx/model.onnx"
     )
 
-    tokenizer = Tokenizer.from_file(
-        tokenizer_path
-    )
+    tokenizer = Tokenizer.from_file(tokenizer_path)
 
     tokenizer.enable_truncation(
         max_length=256
@@ -58,14 +55,14 @@ def load_engine():
         pad_token="[PAD]"
     )
 
-    session_options = ort.SessionOptions()
+    options = ort.SessionOptions()
 
-    session_options.intra_op_num_threads = 1
-    session_options.inter_op_num_threads = 1
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
 
     session = ort.InferenceSession(
         model_path,
-        sess_options=session_options,
+        sess_options=options,
         providers=["CPUExecutionProvider"]
     )
 
@@ -100,21 +97,20 @@ def encode_texts(texts):
         dtype=np.int64
     )
 
-    # Determine what inputs the ONNX model expects
-    model_inputs = {
+    required_inputs = {
         item.name
         for item in session.get_inputs()
     }
 
     inputs = {}
 
-    if "input_ids" in model_inputs:
+    if "input_ids" in required_inputs:
         inputs["input_ids"] = input_ids
 
-    if "attention_mask" in model_inputs:
+    if "attention_mask" in required_inputs:
         inputs["attention_mask"] = attention_mask
 
-    if "token_type_ids" in model_inputs:
+    if "token_type_ids" in required_inputs:
         inputs["token_type_ids"] = token_type_ids
 
     outputs = session.run(
@@ -142,7 +138,7 @@ def encode_texts(texts):
 
     embeddings = summed / counts
 
-    # L2 normalization
+    # Normalize embeddings
     norms = np.linalg.norm(
         embeddings,
         axis=1,
@@ -155,33 +151,27 @@ def encode_texts(texts):
         None
     )
 
-    return embeddings.astype(
-        np.float32
-    )
+    return embeddings.astype(np.float32)
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.header(
-    "KalkiAtlas Engine Status"
-)
+st.sidebar.header("⚡ KalkiAtlas Engine")
 
-st.sidebar.success(
-    "Status: LIVE"
-)
+st.sidebar.success("🟢 Status: LIVE")
 
-st.sidebar.info(
-    "Compute: CPU"
-)
+st.sidebar.info("💻 Compute: CPU")
 
-st.sidebar.info(
-    "Runtime: ONNX"
-)
+st.sidebar.info("⚙️ Runtime: ONNX")
 
-st.sidebar.info(
-    "Model: all-MiniLM-L6-v2"
+st.sidebar.info("🧠 Model: all-MiniLM-L6-v2")
+
+st.sidebar.divider()
+
+st.sidebar.caption(
+    "KalkiAtlas Semantic Intelligence Engine"
 )
 
 
@@ -191,37 +181,43 @@ st.sidebar.info(
 
 tab1, tab2 = st.tabs(
     [
-        "🎯 KalkiRerank (Context Accuracy)",
-        "🔍 KalkiEmbed (Vector Generation)"
+        "🎯 KalkiRerank",
+        "🔍 KalkiEmbed"
     ]
 )
 
 
 # ============================================================
-# TAB 1 - RERANK
+# KALKI RERANK
 # ============================================================
 
 with tab1:
 
     st.subheader(
-        "Multilingual Context Search Reranking Engine"
+        "🎯 Multilingual Context Search Reranking"
+    )
+
+    st.write(
+        "Enter a query and a list of documents. "
+        "KalkiAtlas will rank the most relevant documents."
     )
 
     query = st.text_input(
-        "User Search Query:",
+        "User Search Query",
         "Mera transaction fail hua refund kab aayega?"
     )
 
     docs = st.text_area(
-        "Retrieved Enterprise Docs:",
-        """1. Personal loan interest rates start at 10.5% per annum.
-2. UPI refund process takes 24 to 48 working hours to credit back.
-3. Account KYC must be updated periodically.""",
-        height=130
+        "Retrieved Enterprise Documents",
+        """Personal loan interest rates start at 10.5% per annum.
+UPI refund process takes 24 to 48 working hours to credit back.
+Account KYC must be updated periodically.""",
+        height=160
     )
 
     if st.button(
-        "Execute KalkiRerank"
+        "🚀 Execute KalkiRerank",
+        type="primary"
     ):
 
         documents = [
@@ -233,7 +229,7 @@ with tab1:
         if not query.strip():
 
             st.warning(
-                "Please enter a query."
+                "Please enter a search query."
             )
 
         elif not documents:
@@ -247,16 +243,13 @@ with tab1:
             try:
 
                 with st.spinner(
-                    "Running KalkiRerank..."
+                    "KalkiAtlas is analyzing semantic relevance..."
                 ):
 
-                    # Encode query and docs together
-                    all_text = [
-                        query
-                    ] + documents
+                    all_texts = [query] + documents
 
                     embeddings = encode_texts(
-                        all_text
+                        all_texts
                     )
 
                     query_embedding = embeddings[0]
@@ -297,18 +290,103 @@ with tab1:
                         reverse=True
                     )
 
+
+                # ==================================================
+                # PROFESSIONAL RESULT DISPLAY
+                # ==================================================
+
                 st.success(
                     "✅ Re-ranking Complete!"
                 )
 
-                st.json(
-                    results
+                st.subheader(
+                    "🏆 Ranked Results"
                 )
+
+                for rank, result in enumerate(
+                    results,
+                    start=1
+                ):
+
+                    score = result[
+                        "relevance_score"
+                    ]
+
+                    document = result[
+                        "document"
+                    ]
+
+
+                    # Relevance classification
+                    if score >= 0.60:
+
+                        status = "🟢 High Relevance"
+
+                    elif score >= 0.35:
+
+                        status = "🟡 Medium Relevance"
+
+                    else:
+
+                        status = "🔴 Low Relevance"
+
+
+                    # Result container
+                    with st.container(
+                        border=True
+                    ):
+
+                        col1, col2 = st.columns(
+                            [1, 5]
+                        )
+
+                        with col1:
+
+                            st.metric(
+                                "Rank",
+                                f"#{rank}"
+                            )
+
+                        with col2:
+
+                            st.markdown(
+                                f"### {status}"
+                            )
+
+                            st.write(
+                                document
+                            )
+
+                            st.progress(
+                                min(
+                                    max(score, 0.0),
+                                    1.0
+                                )
+                            )
+
+                            st.caption(
+                                f"Semantic relevance score: "
+                                f"{score:.4f}"
+                            )
+
+
+                # ==================================================
+                # RAW JSON
+                # ==================================================
+
+                with st.expander(
+                    "🔧 View Developer JSON Response"
+                ):
+
+                    st.json(
+                        results
+                    )
+
 
             except Exception as error:
 
                 st.error(
-                    "KalkiRerank failed."
+                    "❌ KalkiRerank failed."
                 )
 
                 st.exception(
@@ -317,28 +395,34 @@ with tab1:
 
 
 # ============================================================
-# TAB 2 - EMBEDDINGS
+# KALKI EMBED
 # ============================================================
 
 with tab2:
 
     st.subheader(
-        "Multilingual Vector Embedding Generator"
+        "🔍 Vector Embedding Generator"
+    )
+
+    st.write(
+        "Convert text into a semantic vector representation."
     )
 
     text = st.text_area(
-        "Input Text Sequence:",
-        "Aadhaar authentication and PAN card linking status"
+        "Input Text",
+        "Aadhaar authentication and PAN card linking status",
+        height=120
     )
 
     if st.button(
-        "Generate Kalki Embeddings"
+        "⚡ Generate Embedding",
+        type="primary"
     ):
 
         if not text.strip():
 
             st.warning(
-                "Please enter text."
+                "Please enter some text."
             )
 
         else:
@@ -346,36 +430,79 @@ with tab2:
             try:
 
                 with st.spinner(
-                    "Generating embedding..."
+                    "Generating semantic embedding..."
                 ):
 
                     vector = encode_texts(
                         text
                     )[0]
 
+
                 st.success(
                     "✅ Embedding Generated!"
                 )
 
-                st.write(
-                    "Vector Dimension:",
-                    len(vector)
+
+                # ==================================================
+                # EMBEDDING INFORMATION
+                # ==================================================
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+
+                    st.metric(
+                        "Vector Dimensions",
+                        len(vector)
+                    )
+
+                with col2:
+
+                    st.metric(
+                        "Runtime",
+                        "ONNX CPU"
+                    )
+
+
+                st.subheader(
+                    "Vector Preview"
                 )
 
-                st.write(
-                    "First 10 Dimensions:"
+                st.code(
+                    str(
+                        vector[:10].tolist()
+                    ),
+                    language="text"
                 )
 
-                st.write(
-                    vector[:10].tolist()
-                )
+
+                # Full vector hidden by default
+                with st.expander(
+                    "View Full Embedding Vector"
+                ):
+
+                    st.json(
+                        vector.tolist()
+                    )
+
 
             except Exception as error:
 
                 st.error(
-                    "Embedding generation failed."
+                    "❌ Embedding generation failed."
                 )
 
                 st.exception(
                     error
                 )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "⚡ KalkiAtlas • Semantic Search, Reranking & Vector Intelligence"
+)
