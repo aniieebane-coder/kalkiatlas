@@ -1,6 +1,5 @@
-torch
-sentence-transformers
-transformers
-sentencepiece
-fastapi
-uvicorn
+streamlit==1.50.0
+numpy==1.26.4
+onnxruntime==1.20.1
+tokenizers==0.20.3
+huggingface-hub==0.26.5
