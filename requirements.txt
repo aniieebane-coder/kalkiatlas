@@ -1,6 +1,6 @@
-streamlit>=1.32.0
-numpy>=1.24.0
-torch>=2.2.0
-sentence-transformers>=2.5.0
-transformers>=4.38.0
-sentencepiece>=0.2.0
+torch
+sentence-transformers
+transformers
+sentencepiece
+fastapi
+uvicorn
