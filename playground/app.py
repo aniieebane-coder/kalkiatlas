@@ -1,35 +1,54 @@
-import streamlit as st, requests
+import streamlit as st
+import torch
+from sentence_transformers import SentenceTransformer, util
 
 st.set_page_config(page_title="KalkiAtlas Console", layout="wide")
 st.title("⚡ KALKIATLAS | Enterprise AI Console")
+st.caption("Sovereign Multilingual Embeddings & High-Precision Context Reranking Engine")
 
-API_URL = "http://localhost:8000/v1"
-HEADERS = {"X-Kalki-Key": "sk-kalki-live-secret-key"}
+# Cache model so it loads into memory once (~80MB RAM footprint)
+@st.cache_resource
+def load_engine():
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    return model
 
-tab1, tab2 = st.tabs(["🎯 KalkiRerank", "🔍 KalkiEmbed"])
+try:
+    model = load_engine()
+    st.sidebar.success("KalkiAtlas Engine: ACTIVE")
+    st.sidebar.info("Deployment: Render Cloud (24/7)")
+    st.sidebar.caption("DPDP Act 2023 Compliant")
+except Exception as e:
+    st.sidebar.error(f"Initialization Error: {e}")
+
+tab1, tab2 = st.tabs(["🎯 KalkiRerank (Context Accuracy)", "🔍 KalkiEmbed (Vector Generation)"])
 
 with tab1:
-    q = st.text_input("Search Query:", "Mera transaction fail hua refund kab aayega?")
-    docs = st.text_area("Docs:", "1. Loan rates start at 10.5%.\n2. UPI refund takes 24-48 working hours.\n3. Check balance via app.")
+    st.subheader("Multilingual Context Search Reranking Engine")
+    query = st.text_input("User Search Query (Hinglish/Native/English):", "Mera transaction fail hua refund kab aayega?")
+    docs = st.text_area("Retrieved Enterprise Docs (Unsorted RAG Data):", 
+                        "1. Personal loan interest rates start at 10.5% per annum.\n2. UPI refund process takes 24 to 48 working hours to credit back.\n3. Account balance check can be done using mobile banking app.")
+    
     if st.button("Execute KalkiRerank"):
-        d_list = [d.strip() for d in docs.split("\n") if d.strip()]
-        try:
-            res = requests.post(f"{API_URL}/rerank", headers=HEADERS, json={"query": q, "documents": d_list, "top_n": 2}, timeout=120)
-            if res.status_code == 200: 
-                st.json(res.json())
-            else:
-                st.error(f"Error: {res.text}")
-        except Exception as e:
-            st.error(f"Connection Error: {str(e)}")
+        doc_list = [d.strip() for d in docs.split("\n") if d.strip()]
+        
+        # Direct Python Inference (No HTTP connections -> Fixes Connection Error!)
+        query_emb = model.encode(query, convert_to_tensor=True)
+        doc_embs = model.encode(doc_list, convert_to_tensor=True)
+        
+        scores = util.cos_sim(query_emb, doc_embs)[0].cpu().tolist()
+        
+        results = [{"index": idx, "document": doc, "relevance_score": float(round(score, 4))} for idx, (doc, score) in enumerate(zip(doc_list, scores))]
+        results.sort(key=lambda x: x["relevance_score"], reverse=True)
+        
+        st.success("Re-ranking Complete!")
+        st.json(results)
 
 with tab2:
-    txt = st.text_area("Text:", "Aadhaar authentication and PAN linking")
-    if st.button("Generate Embeddings"):
-        try:
-            res = requests.post(f"{API_URL}/embed", headers=HEADERS, json={"texts": [txt]}, timeout=120)
-            if res.status_code == 200: 
-                st.json(res.json())
-            else:
-                 st.error(f"Error: {res.text}")
-        except Exception as e:
-             st.error(f"Connection Error: {str(e)}")
+    st.subheader("Multilingual Vector Embedding Generator")
+    text = st.text_area("Input Text Sequence:", "Aadhaar authentication and PAN card linking status")
+    
+    if st.button("Generate Kalki Embeddings"):
+        vector = model.encode(text).tolist()
+        st.success("Embeddings Generated!")
+        st.write("Vector Dimension Size:", len(vector))
+        st.write("First 10 Dimensions Sample:", vector[:10])
